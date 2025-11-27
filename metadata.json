@@ -1,0 +1,7 @@
+{
+  "name": "GourmetGuide AI",
+  "description": "A smart location-based restaurant finder powered by Gemini with Google Maps Grounding.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
