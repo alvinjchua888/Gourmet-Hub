@@ -1,31 +1,159 @@
+/**
+ * RestaurantFinder Component
+ * 
+ * The main feature component of GourmetGuide AI. Handles restaurant discovery
+ * using AI-powered recommendations with Google Maps grounding.
+ * 
+ * KEY FEATURES:
+ * ============
+ * 1. Location Services
+ *    - Browser geolocation for user position
+ *    - Real-time coordinate tracking
+ *    - Permission handling and error states
+ * 
+ * 2. Smart Search Filters
+ *    - Cuisine type selection (Italian, Mexican, etc.)
+ *    - Price range filtering ($-$$$$)
+ *    - Advanced filters (dietary restrictions, amenities)
+ *    - Specific dish search capability
+ * 
+ * 3. AI-Powered Results
+ *    - Natural language recommendations from Gemini 2.5 Flash
+ *    - Real restaurant data from Google Maps
+ *    - Review snippets and ratings
+ *    - Direct links to Google Maps
+ * 
+ * 4. User Review System
+ *    - 5-star rating system
+ *    - Written reviews with comments
+ *    - LocalStorage persistence
+ *    - Aggregate rating display
+ * 
+ * STATE MANAGEMENT:
+ * ================
+ * Location State:
+ *   - location: User's coordinates
+ *   - locationStatus: 'idle' | 'loading' | 'success' | 'error'
+ * 
+ * Search Filters:
+ *   - cuisine: Selected cuisine type
+ *   - price: Selected price range
+ *   - dietary: Array of dietary restrictions
+ *   - amenities: Array of required amenities
+ *   - customDish: Specific dish search query
+ * 
+ * Results:
+ *   - isSearching: Loading state during API call
+ *   - result: AI summary + grounding chunks from API
+ *   - error: Error message to display to user
+ * 
+ * Reviews:
+ *   - reviews: Array of user-submitted reviews (persisted)
+ *   - reviewModalOpen: Modal visibility
+ *   - selectedRestaurant: Restaurant being reviewed
+ *   - newRating: Rating being submitted (1-5)
+ *   - newComment: Review comment text
+ * 
+ * KEY FUNCTIONS:
+ * =============
+ * - requestLocation(): Get user's current position via Geolocation API
+ * - handleSearch(): Perform restaurant search with current filters
+ * - toggleFilter(): Toggle selection in multi-select filters
+ * - openReviewModal(): Open review submission modal for a restaurant
+ * - handleReviewSubmit(): Save user review to localStorage
+ * - getRestaurantStats(): Calculate aggregate ratings for a restaurant
+ * - renderMarkdown(): Convert markdown text to HTML for display
+ * 
+ * UI SECTIONS:
+ * ===========
+ * 1. Header: Title and description
+ * 2. Control Panel: Location, filters, and search button
+ * 3. Advanced Filters: Expandable dietary and amenity options
+ * 4. Results: AI summary and restaurant cards in grid layout
+ * 5. Review Modal: Star rating and comment submission
+ * 
+ * INTEGRATION:
+ * ===========
+ * - Uses findRestaurants() from services/gemini.ts
+ * - Integrates with Google Maps via grounding API
+ * - Persists reviews in browser localStorage
+ * - Uses marked.js for markdown rendering (loaded from CDN)
+ * - Imports UI components: Button, Card, Badge, Modal, StarRating
+ * 
+ * @module components/RestaurantFinder
+ */
+
 import React, { useState } from 'react';
 import { MapPin, Navigation, Search, DollarSign, Utensils, ExternalLink, AlertTriangle, Filter, Edit, Star } from 'lucide-react';
 import { CuisineType, PriceRange, Coordinates, RestaurantResult, DietaryRestriction, Amenity, Review } from '../types';
 import { findRestaurants } from '../services/gemini';
 import { Button, Card, Badge, Modal, StarRating } from './UI';
 
-// Declare marked global for this file too
+// Declare marked global for markdown rendering (loaded from CDN in index.html)
 declare const marked: {
   parse: (text: string) => string;
 };
 
+/**
+ * RestaurantFinder Component
+ * Main feature component for restaurant discovery
+ */
 export const RestaurantFinder: React.FC = () => {
+  // ============================================================================
+  // STATE: LOCATION MANAGEMENT
+  // ============================================================================
+  
+  // User's geographic coordinates from browser geolocation
   const [location, setLocation] = useState<Coordinates | null>(null);
+  
+  // Status of location fetch: idle, loading, success, or error
   const [locationStatus, setLocationStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  
+  // ============================================================================
+  // STATE: BASIC SEARCH FILTERS
+  // ============================================================================
+  
+  // Selected cuisine type (e.g., 'Italian', 'Mexican', 'Any Cuisine')
   const [cuisine, setCuisine] = useState<string>(CuisineType.ANY);
+  
+  // Selected price range (e.g., '$', '$$', 'Any Price')
   const [price, setPrice] = useState<string>(PriceRange.ANY);
   
-  // Advanced Filters
+  // ============================================================================
+  // STATE: ADVANCED FILTERS
+  // ============================================================================
+  
+  // Controls visibility of advanced filter section
   const [showFilters, setShowFilters] = useState(false);
+  
+  // Array of selected dietary restrictions (e.g., ['Vegan', 'Gluten-Free'])
   const [dietary, setDietary] = useState<DietaryRestriction[]>([]);
+  
+  // Array of selected amenities (e.g., ['Wi-Fi', 'Outdoor Seating'])
   const [amenities, setAmenities] = useState<Amenity[]>([]);
+  
+  // Optional specific dish search query (e.g., 'Truffle Pizza')
   const [customDish, setCustomDish] = useState('');
 
+  // ============================================================================
+  // STATE: SEARCH RESULTS
+  // ============================================================================
+  
+  // Indicates if a search is currently in progress
   const [isSearching, setIsSearching] = useState(false);
+  
+  // Search results containing AI summary and restaurant data
   const [result, setResult] = useState<RestaurantResult | null>(null);
+  
+  // Error message to display to user (null if no error)
   const [error, setError] = useState<string | null>(null);
 
-  // Review System State
+  // ============================================================================
+  // STATE: REVIEW SYSTEM
+  // ============================================================================
+  
+  // User-submitted reviews, persisted in localStorage
+  // Initialized from localStorage on component mount
   const [reviews, setReviews] = useState<Review[]>(() => {
     try {
       const saved = localStorage.getItem('restaurant_reviews');
@@ -34,16 +162,53 @@ export const RestaurantFinder: React.FC = () => {
       return [];
     }
   });
+  
+  // Controls review modal visibility
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
+  
+  // Restaurant currently being reviewed
   const [selectedRestaurant, setSelectedRestaurant] = useState<{title: string, uri: string} | null>(null);
+  
+  // Rating being submitted (1-5 stars, default 5)
   const [newRating, setNewRating] = useState(5);
+  
+  // Review comment text
   const [newComment, setNewComment] = useState('');
 
+  // ============================================================================
+  // CONSTANTS: FILTER OPTIONS
+  // ============================================================================
+  
+  // Available dietary restriction options for filters
   const dietaryOptions: DietaryRestriction[] = ['Vegetarian', 'Vegan', 'Gluten-Free', 'Halal'];
+  
+  // Available amenity options for filters
   const amenityOptions: Amenity[] = ['Outdoor Seating', 'Wi-Fi', 'Pet Friendly', 'Parking'];
 
+  // ============================================================================
+  // LOCATION SERVICES
+  // ============================================================================
+  
+  /**
+   * Requests user's current location using browser Geolocation API
+   * 
+   * Process:
+   * 1. Set loading state
+   * 2. Check if geolocation is supported
+   * 3. Request current position
+   * 4. Update location state on success
+   * 5. Show error message on failure
+   * 
+   * Error cases handled:
+   * - Browser doesn't support geolocation
+   * - User denies permission
+   * - Position unavailable
+   * - Request timeout
+   */
   const requestLocation = () => {
     setLocationStatus('loading');
+    
+    // Check browser support
     if (!navigator.geolocation) {
       setLocationStatus('error');
       setError("Geolocation is not supported by your browser.");
